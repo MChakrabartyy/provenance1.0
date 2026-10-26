@@ -1,0 +1,6 @@
+fastapi
+pydantic>=2
+openpyxl
+pyyaml
+anthropic
+httpx
