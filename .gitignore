@@ -1,0 +1,14 @@
+# environments and caches
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+# local database and logs (rebuilt by run.sh all)
+infra/provenance.db*
+infra/last_run.log.jsonl
+# generated synthetic data (python -m provenance.data.synthetic.generator)
+data/synthetic/generated/
+# eval output
+copilot/evals/last_scorecard.json
+# secrets
+.env

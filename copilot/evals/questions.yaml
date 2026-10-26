@@ -1,0 +1,156 @@
+# Copilot eval set. Placeholders: {as_of} = latest run date, {week} = 5 trading days before as_of, {day} = 1 trading day before.
+# Numeric checks recompute the expected value with the engine directly and require the figure to match exactly.
+- id: n1
+  category: numeric
+  user: tok-risk
+  question: "Why is Manager C down this week?"
+  expect: {confidence: answered, figures: [{label: "Total P&L", tool: get_pnl_attribution, args: {manager_id: C, start: "{week}", end: "{as_of}"}, path: total, format: money}]}
+- id: n2
+  category: numeric
+  user: tok-pm-a
+  question: "What drove my P&L this week?"
+  expect: {confidence: answered, figures: [{label: "Total P&L", tool: get_pnl_attribution, args: {manager_id: A, start: "{week}", end: "{as_of}"}, path: total, format: money}, {label: "Realized", tool: get_pnl_attribution, args: {manager_id: A, start: "{week}", end: "{as_of}"}, path: realized, format: money}]}
+- id: n3
+  category: numeric
+  user: tok-risk
+  question: "What is our net exposure to semiconductors across all managers?"
+  expect: {confidence: answered, figures: [{label: "Semiconductors net exposure", tool: get_exposure, args: {scope: firm, as_of: "{as_of}"}, path: "by_sector[sector=Semiconductors].net", format: money}]}
+- id: n4
+  category: numeric
+  user: tok-risk
+  question: "What is the firm's gross and net exposure?"
+  expect: {confidence: answered, figures: [{label: "Gross exposure", tool: get_exposure, args: {scope: firm, as_of: "{as_of}"}, path: gross, format: money}, {label: "Net exposure", tool: get_exposure, args: {scope: firm, as_of: "{as_of}"}, path: net, format: money}]}
+- id: n5
+  category: numeric
+  user: tok-pm-a
+  question: "Show my top 5 positions by delta-adjusted exposure."
+  expect: {confidence: answered, figure_count: 5, figures: [{label_index: 0, tool: get_positions, args: {manager_id: A, as_of: "{as_of}", top_n: 5}, path: "positions[0].delta_adjusted_exposure", format: money}]}
+- id: n6
+  category: numeric
+  user: tok-pm-c
+  question: "What is my sector exposure?"
+  expect: {confidence: answered, figures: [{label: "Gross exposure", tool: get_exposure, args: {scope: C, as_of: "{as_of}"}, path: gross, format: money}]}
+- id: n7
+  category: numeric
+  user: tok-risk
+  question: "How did Manager B perform today?"
+  expect: {confidence: answered, figures: [{label: "Total P&L", tool: get_pnl_attribution, args: {manager_id: B, start: "{day}", end: "{as_of}"}, path: total, format: money}]}
+- id: n8
+  category: numeric
+  user: tok-risk
+  question: "Where is the firm concentrated?"
+  expect: {confidence: answered, figures: [{label_index: 0, tool: get_concentration, args: {as_of: "{as_of}"}, path: "largest_names[0].pct_of_gross", format: pct}]}
+- id: n9
+  category: numeric
+  user: tok-pm-d
+  question: "Show my top 3 positions"
+  expect: {confidence: answered, figure_count: 3, figures: [{label_index: 2, tool: get_positions, args: {manager_id: D, as_of: "{as_of}", top_n: 3}, path: "positions[2].delta_adjusted_exposure", format: money}]}
+- id: n10
+  category: numeric
+  user: tok-risk
+  question: "What is Manager D's P&L this month?"
+  expect: {confidence: answered, figures: [{label: "Total P&L", tool: get_pnl_attribution, args: {manager_id: D, start: "{month}", end: "{as_of}"}, path: total, format: money}]}
+
+- id: r1
+  category: retrieval
+  user: tok-pm-a
+  question: "What did NVIDIA's latest 10-K say about supply constraints?"
+  expect: {cites_title: "NVDA 10-K", cites_chunk: 1}
+- id: r2
+  category: retrieval
+  user: tok-pm-c
+  question: "What did my analyst's memo say about LLY?"
+  expect: {cites_title: "Manager C memo: LLY"}
+- id: r3
+  category: retrieval
+  user: tok-pm-a
+  question: "What is our research thesis on INTC?"
+  expect: {cites_title: "Manager A memo: INTC"}
+- id: r4
+  category: retrieval
+  user: tok-risk
+  question: "What did the Apple 10-K say about suppliers?"
+  expect: {cites_title: "AAPL 10-K"}
+- id: r5
+  category: retrieval
+  user: tok-pm-b
+  question: "What did the memo say about TSLA skew?"
+  expect: {cites_title: "Manager B memo: TSLA"}
+- id: r6
+  category: retrieval
+  user: tok-risk
+  question: "What does the Lilly filing say about manufacturing capacity?"
+  expect: {cites_title: "LLY 10-K"}
+- id: r7
+  category: retrieval
+  user: tok-pm-c
+  question: "Why are we short PFE according to the research memo?"
+  expect: {cites_title: "Manager C memo: PFE"}
+- id: r8
+  category: retrieval
+  user: tok-pm-d
+  question: "What did the memo say about COST membership fees?"
+  expect: {cites_title: "Manager D memo: COST"}
+
+- id: q1
+  category: quality
+  user: tok-risk
+  question: "Were any of today's prices stale?"
+  expect: {answer_contains: "ORCL", answer_contains_2: "stale"}
+- id: q2
+  category: quality
+  user: tok-risk
+  question: "Which rows were quarantined in the last run and why?"
+  expect: {answer_contains: "duplicate_trade", answer_contains_2: "price_jump"}
+- id: q3
+  category: quality
+  user: tok-eng
+  question: "Did last night's pipeline run succeed and how many rows were quarantined?"
+  expect: {answer_contains: "success", answer_contains_2: "quarantined"}
+- id: q4
+  category: quality
+  user: tok-risk
+  question: "Why was Manager A's P&L flagged this week? Any data quality warnings on ORCL?"
+  expect: {warning_contains: "ORCL"}
+
+- id: p1
+  category: permission
+  user: tok-pm-a
+  question: "Show me Manager B's positions"
+  expect: {confidence: refused, answer_not_contains: "AAPL"}
+- id: p2
+  category: permission
+  user: tok-pm-c
+  question: "What is Manager A's P&L this week?"
+  expect: {confidence: refused}
+- id: p3
+  category: permission
+  user: tok-pm-b
+  question: "What is the firm's net exposure to healthcare?"
+  expect: {confidence: refused}
+- id: p4
+  category: permission
+  user: tok-pm-d
+  question: "What did Manager C's analyst memo say about LLY?"
+  expect: {not_cites_title: "Manager C memo"}
+
+- id: o1
+  category: out_of_scope
+  user: tok-pm-a
+  question: "What will AAPL do tomorrow?"
+  expect: {confidence: refused}
+- id: o2
+  category: out_of_scope
+  user: tok-risk
+  question: "Should I buy more NVDA?"
+  expect: {confidence: refused}
+- id: o3
+  category: out_of_scope
+  user: tok-pm-c
+  question: "Give me a price target for LLY next quarter."
+  expect: {confidence: refused}
+- id: o4
+  category: out_of_scope
+  user: tok-pm-b
+  question: "Do you recommend selling our TSLA puts?"
+  expect: {confidence: refused}

@@ -1,0 +1,12 @@
+[project]
+name = "provenance"
+version = "0.0.1"
+description = "AI copilot for a multi-manager fund platform: deterministic numbers, cited answers"
+requires-python = ">=3.12"
+dependencies = [
+  "fastapi", "uvicorn[standard]", "pydantic>=2", "openpyxl", "pyyaml", "pytest", "anthropic", "httpx",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["engine/tests", "ingestion/tests", "copilot/tests"]
+pythonpath = [".."]

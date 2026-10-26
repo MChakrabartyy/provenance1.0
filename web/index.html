@@ -1,0 +1,217 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Provenance</title>
+<style>
+  :root { --bg:#0f1115; --panel:#171a21; --line:#262a33; --text:#e6e8ee; --muted:#8b93a7; --blue:#5b9cff; --orange:#ff9a3c; --red:#ff6b6b; --green:#4cd48a; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  header { display:flex; gap:16px; align-items:center; padding:12px 20px; border-bottom:1px solid var(--line); }
+  header h1 { font-size:16px; margin:0; letter-spacing:.3px; }
+  header .sub { color:var(--muted); font-size:12px; }
+  header select, header button, textarea, input { background:var(--panel); color:var(--text); border:1px solid var(--line); border-radius:6px; padding:6px 8px; font: inherit; }
+  nav { display:flex; gap:4px; padding:8px 20px; border-bottom:1px solid var(--line); }
+  nav button { background:transparent; border:1px solid transparent; color:var(--muted); padding:6px 10px; border-radius:6px; cursor:pointer; }
+  nav button.active { color:var(--text); border-color:var(--line); background:var(--panel); }
+  main { padding:16px 20px; display:grid; gap:16px; }
+  .grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap:16px; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:14px 16px; }
+  .card h2 { font-size:13px; margin:0 0 10px; color:var(--muted); font-weight:600; text-transform:uppercase; letter-spacing:.6px; }
+  .kpis { display:flex; gap:24px; flex-wrap:wrap; }
+  .kpi .v { font-size:22px; font-weight:600; font-variant-numeric: tabular-nums; }
+  .kpi .l { color:var(--muted); font-size:12px; }
+  table { width:100%; border-collapse:collapse; font-variant-numeric: tabular-nums; }
+  th, td { text-align:left; padding:6px 8px; border-bottom:1px solid var(--line); }
+  th { color:var(--muted); font-weight:500; font-size:12px; }
+  td.num, th.num { text-align:right; }
+  .neg { color:var(--red); } .pos { color:var(--green); }
+  .bar { height:10px; border-radius:3px; }
+  .warn { background:#2a2113; border:1px solid #5a4620; color:#ffd58a; padding:8px 10px; border-radius:6px; margin:6px 0; font-size:13px; }
+  .fig { display:inline-block; background:#1f2a40; border:1px solid #2f4470; color:var(--blue); border-radius:6px; padding:2px 8px; margin:2px 4px 2px 0; cursor:pointer; font-variant-numeric: tabular-nums; }
+  .cite { display:inline-block; background:#2a1f14; border:1px solid #5a3b20; color:var(--orange); border-radius:6px; padding:2px 8px; margin:2px 4px 2px 0; cursor:pointer; }
+  .conf { font-size:11px; padding:2px 8px; border-radius:10px; border:1px solid var(--line); color:var(--muted); }
+  .chat { display:grid; grid-template-columns: 1fr 380px; gap:16px; }
+  @media (max-width: 900px) { .chat { grid-template-columns: 1fr; } }
+  .msg { padding:10px 12px; border-radius:8px; margin-bottom:10px; }
+  .msg.q { background:#1a2030; } .msg.a { background:#141820; border:1px solid var(--line); }
+  pre { white-space:pre-wrap; word-break:break-word; background:#0c0e12; padding:10px; border-radius:6px; max-height:420px; overflow:auto; font-size:12px; }
+  .muted { color:var(--muted); }
+  .examples button { margin:2px 4px 2px 0; background:transparent; border:1px solid var(--line); color:var(--muted); border-radius:6px; padding:4px 8px; cursor:pointer; font-size:12px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Provenance</h1>
+  <span class="sub">The LLM explains; a deterministic engine does every calculation</span>
+  <span style="flex:1"></span>
+  <label class="sub">Sign in as
+    <select id="who">
+      <option value="tok-pm-a">Manager A (PM)</option>
+      <option value="tok-pm-b">Manager B (PM)</option>
+      <option value="tok-pm-c">Manager C (PM)</option>
+      <option value="tok-pm-d">Manager D (PM)</option>
+      <option value="tok-risk" selected>Risk team</option>
+      <option value="tok-eng">Platform engineer</option>
+    </select>
+  </label>
+  <span id="asof" class="sub"></span>
+</header>
+<nav>
+  <button data-view="firm">Firm view</button>
+  <button data-view="pod">Pod view</button>
+  <button data-view="pipeline">Pipeline</button>
+  <button data-view="chat" class="active">Chat</button>
+</nav>
+<main id="main"></main>
+
+<script>
+const $ = (s, el=document) => el.querySelector(s);
+const state = { token: 'tok-risk', view: 'chat', me: null, history: [] };
+const fmt = v => { const n = Number(v); return isNaN(n) ? v : n.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2}); };
+const cls = v => Number(v) < 0 ? 'neg' : 'pos';
+
+async function api(path, opts={}) {
+  const r = await fetch('/api' + path, { ...opts, headers: { 'Authorization': 'Bearer ' + state.token, 'Content-Type': 'application/json', ...(opts.headers||{}) } });
+  const body = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(body.detail || r.statusText);
+  return body;
+}
+
+function warnings(ws) { return (ws||[]).map(w => `<div class="warn">⚠ ${w}</div>`).join(''); }
+
+function table(cols, rows) {
+  return `<table><thead><tr>${cols.map(c => `<th class="${c.num?'num':''}">${c.h}</th>`).join('')}</tr></thead><tbody>` +
+    rows.map(r => `<tr>${cols.map(c => { const v = c.f(r); return `<td class="${c.num?'num':''} ${c.color? cls(c.color(r)) : ''}">${v}</td>`; }).join('')}</tr>`).join('') + '</tbody></table>';
+}
+
+function bars(rows, key, label) {
+  const max = Math.max(...rows.map(r => Math.abs(Number(r[key])))) || 1;
+  return rows.map(r => { const v = Number(r[key]); const w = Math.abs(v)/max*100;
+    return `<div style="display:grid;grid-template-columns:140px 1fr 110px;gap:8px;align-items:center;margin:3px 0">
+      <span class="muted" style="font-size:12px">${label(r)}</span>
+      <div style="display:flex;justify-content:${v<0?'flex-end':'flex-start'}"><div class="bar" style="width:${w}%;background:${v<0?'var(--red)':'var(--green)'}"></div></div>
+      <span class="num ${cls(v)}" style="text-align:right">${fmt(v)}</span></div>`; }).join('');
+}
+
+async function renderFirm(el) {
+  if (state.me.role !== 'risk') { el.innerHTML = `<div class="card">Firm view requires the risk role. You are signed in as ${state.me.role}${state.me.manager_id ? ' for Manager ' + state.me.manager_id : ''}.</div>`; return; }
+  const [exp, conc] = await Promise.all([api('/exposure?scope=firm'), api('/concentration')]);
+  const d = exp.data, c = conc.data;
+  el.innerHTML = `
+    ${warnings(exp.warnings)}
+    <div class="card"><h2>Firm exposure as of ${d.as_of}</h2><div class="kpis">
+      <div class="kpi"><div class="v">${fmt(d.gross)}</div><div class="l">Gross (delta-adjusted)</div></div>
+      <div class="kpi"><div class="v ${cls(d.net)}">${fmt(d.net)}</div><div class="l">Net</div></div>
+      <div class="kpi"><div class="v pos">${fmt(d.long)}</div><div class="l">Long</div></div>
+      <div class="kpi"><div class="v neg">${fmt(d.short)}</div><div class="l">Short</div></div></div></div>
+    <div class="grid">
+      <div class="card"><h2>Net exposure by sector</h2>${bars(d.by_sector, 'net', r => r.sector)}</div>
+      <div class="card"><h2>Gross exposure by manager</h2>${bars(d.by_manager, 'gross', r => 'Manager ' + r.manager_id)}</div>
+      <div class="card"><h2>Concentration alerts</h2>
+        ${table([{h:'Name', f:r=>r.name},{h:'Net exposure', num:1, color:r=>r.net_exposure, f:r=>fmt(r.net_exposure)},{h:'% of gross', num:1, f:r=>r.pct_of_gross+'%'}], c.largest_names)}
+        <div style="height:10px"></div>
+        ${table([{h:'Sector', f:r=>r.sector},{h:'Gross', num:1, f:r=>fmt(r.gross)},{h:'% of gross', num:1, f:r=>r.pct_of_gross+'%'}], c.largest_sectors)}
+        <p class="muted" style="font-size:12px">Source rows used: ${conc.source_rows.length}</p></div>
+    </div>`;
+}
+
+async function renderPod(el) {
+  if (state.me.role === 'engineer') { el.innerHTML = `<div class="card">Engineer accounts see pipeline health only.</div>`; return; }
+  const managers = state.me.managers;
+  const mid = state.pod || managers[0].id; state.pod = mid;
+  const [pos, pnl] = await Promise.all([api(`/positions?manager_id=${mid}`), api(`/pnl?manager_id=${mid}&days=5`)]);
+  const p = pnl.data;
+  el.innerHTML = `
+    <div class="card" style="display:flex;gap:16px;align-items:center"><h2 style="margin:0">Pod</h2>
+      <select id="podsel">${managers.map(m => `<option value="${m.id}" ${m.id===mid?'selected':''}>Manager ${m.id} · ${m.pod} · ${m.strategy}</option>`).join('')}</select></div>
+    ${warnings([...(pnl.warnings||[]), ...(pos.warnings||[])])}
+    <div class="card"><h2>P&L ${p.start} → ${p.end} (5 trading days)</h2><div class="kpis">
+      <div class="kpi"><div class="v ${cls(p.total)}">${fmt(p.total)}</div><div class="l">Total</div></div>
+      <div class="kpi"><div class="v ${cls(p.realized)}">${fmt(p.realized)}</div><div class="l">Realized</div></div>
+      <div class="kpi"><div class="v ${cls(p.unrealized)}">${fmt(p.unrealized)}</div><div class="l">Unrealized</div></div></div></div>
+    <div class="grid">
+      <div class="card"><h2>Attribution by position</h2>${bars(p.by_position, 'pnl', r => r.symbol)}</div>
+      <div class="card"><h2>Attribution by sector</h2>${bars(p.by_sector, 'pnl', r => r.sector)}</div>
+    </div>
+    <div class="card"><h2>Positions as of ${pos.data.as_of} (by |delta-adjusted exposure|)</h2>
+      ${table([{h:'Symbol', f:r=>r.symbol},{h:'Sector', f:r=>r.sector},{h:'Qty', num:1, f:r=>r.qty},{h:'Avg cost', num:1, f:r=>fmt(r.avg_cost)},{h:'Close', num:1, f:r=>fmt(r.close)},
+               {h:'Market value', num:1, color:r=>r.market_value, f:r=>fmt(r.market_value)},{h:'Delta', num:1, f:r=>Number(r.delta).toFixed(3)},{h:'Delta-adj exposure', num:1, color:r=>r.delta_adjusted_exposure, f:r=>fmt(r.delta_adjusted_exposure)},
+               {h:'Unrealized', num:1, color:r=>r.unrealized_pnl, f:r=>fmt(r.unrealized_pnl)}], pos.data.positions)}</div>`;
+  $('#podsel').onchange = e => { state.pod = e.target.value; render(); };
+}
+
+async function renderPipeline(el) {
+  const runs = await api('/runs');
+  const latest = runs[0];
+  const q = latest ? await api(`/runs/${latest.run_date}`) : null;
+  const byRule = q ? Object.entries(q.data.quarantined_by_rule) : [];
+  el.innerHTML = `
+    <div class="card"><h2>Last runs</h2>${table([{h:'Run', f:r=>r.id},{h:'Date', f:r=>r.run_date},{h:'Status', f:r=>`<span class="conf">${r.status}</span>`},{h:'Rows in', num:1, f:r=>r.rows_in},{h:'Quarantined', num:1, f:r=>r.rows_quarantined},
+      {h:'Files', num:1, f:r=>(r.report.files_processed||0)+' / '+(r.report.files_skipped||0)+' skipped'},{h:'Sources failed', f:r=>(r.report.sources_failed||[]).join(', ')||'—'},{h:'ms', num:1, f:r=>r.report.duration_ms||''}], runs)}</div>
+    ${q ? `<div class="grid">
+      <div class="card"><h2>Quarantined rows by rule (run ${q.data.run_id})</h2>${byRule.length ? bars(byRule.map(([k,v])=>({rule:k,n:v})), 'n', r=>r.rule) : '<span class="muted">none</span>'}</div>
+      <div class="card"><h2>Quarantine detail</h2>${table([{h:'Table', f:r=>r.table},{h:'Rule', f:r=>r.rule},{h:'Symbol', f:r=>r.symbol||''},{h:'Date', f:r=>r.as_of_date||''},{h:'Mgr', f:r=>r.manager_id||'—'},{h:'Reason', f:r=>r.reason}], q.data.quarantined)}</div>
+    </div>` : ''}
+    ${state.me.role === 'engineer' ? `<div class="card"><button id="trigger">Trigger a run now</button> <span class="muted">(engineer only; idempotent)</span></div>` : ''}`;
+  const b = $('#trigger'); if (b) b.onclick = async () => { b.disabled = true; b.textContent = 'Running…'; try { await api('/runs', {method:'POST'}); } catch(e) { alert(e.message); } render(); };
+}
+
+const EXAMPLES = ["Why is Manager C down this week?", "What is our net exposure to semiconductors across all managers?", "Show my top 5 positions by delta-adjusted exposure.",
+  "Were any of today's prices stale?", "What did NVIDIA's latest 10-K say about supply constraints?", "Show me Manager B's positions", "What will AAPL do tomorrow?", "Where is the firm concentrated?"];
+
+function renderChat(el) {
+  el.innerHTML = `<div class="chat">
+    <div>
+      <div class="card"><h2>Ask</h2>
+        <textarea id="q" rows="2" style="width:100%" placeholder="Ask about P&L, exposure, positions, data quality, or documents…"></textarea>
+        <div style="display:flex;gap:8px;margin-top:8px;align-items:center"><button id="send">Ask</button><span class="muted" id="status"></span></div>
+        <div class="examples" style="margin-top:8px">${EXAMPLES.map(e => `<button data-q="${e.replace(/"/g,'&quot;')}">${e}</button>`).join('')}</div></div>
+      <div id="history"></div>
+    </div>
+    <div class="card"><h2>Inspector</h2><div id="inspect" class="muted">Click a figure to see the rows it came from, or a citation to open the passage.</div></div>
+  </div>`;
+  const hist = $('#history');
+  const draw = () => { hist.innerHTML = state.history.map((h, i) => `
+    <div class="msg q"><b>${h.user}</b> · ${h.q}</div>
+    <div class="msg a">
+      <span class="conf">${h.a.confidence}</span> ${h.a.answer}
+      <div style="margin-top:8px">${h.a.figures.map((f, j) => `<span class="fig" data-h="${i}" data-f="${j}">${f.label}: ${f.value}</span>`).join('')}</div>
+      <div>${h.a.citations.map((c, j) => `<span class="cite" data-h="${i}" data-c="${j}">📄 ${c.title || ('doc ' + c.document_id)} · chunk ${c.chunk_index}</span>`).join('')}</div>
+      ${warnings(h.a.warnings)}
+    </div>`).join('');
+    hist.querySelectorAll('.fig').forEach(s => s.onclick = async () => { const f = state.history[s.dataset.h].a.figures[s.dataset.f];
+      $('#inspect').innerHTML = `<b>${f.label} = ${f.value}</b><p class="muted">${f.source_rows.length} source rows. First 10:</p><div id="rows">loading…</div>`;
+      const rows = await Promise.all(f.source_rows.slice(0, 10).map(id => api('/rows/' + encodeURIComponent(id)).catch(e => ({row_id:id, error:e.message}))));
+      $('#rows').innerHTML = rows.map(r => `<pre>${JSON.stringify(r, null, 1)}</pre>`).join(''); });
+    hist.querySelectorAll('.cite').forEach(s => s.onclick = async () => { const c = state.history[s.dataset.h].a.citations[s.dataset.c];
+      const r = await api(`/documents/${c.document_id}/chunks/${c.chunk_index}`).catch(e => ({error:e.message}));
+      $('#inspect').innerHTML = r.error ? `<div class="warn">${r.error}</div>` : `<b>${r.row.title}</b><p class="muted">document ${c.document_id}, chunk ${c.chunk_index}${r.row.source_url ? ` · <a style="color:var(--orange)" href="${r.row.source_url}" target="_blank">source</a>` : ''}</p><pre>${r.row.text}</pre>`; });
+  };
+  draw();
+  const send = async q => { if (!q) return; $('#status').textContent = 'thinking…'; $('#send').disabled = true;
+    try { const a = await api('/ask', {method:'POST', body: JSON.stringify({question: q})}); state.history.unshift({q, a, user: state.me.email}); draw(); }
+    catch(e) { state.history.unshift({q, a: {confidence:'error', answer: e.message, figures:[], citations:[], warnings:[]}, user: state.me.email}); draw(); }
+    $('#status').textContent = ''; $('#send').disabled = false; };
+  $('#send').onclick = () => send($('#q').value.trim());
+  $('#q').onkeydown = e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send($('#q').value.trim()); } };
+  el.querySelectorAll('.examples button').forEach(b => b.onclick = () => { $('#q').value = b.dataset.q; send(b.dataset.q); });
+}
+
+async function render() {
+  const el = $('#main');
+  document.querySelectorAll('nav button').forEach(b => b.classList.toggle('active', b.dataset.view === state.view));
+  try {
+    state.me = await api('/me');
+    $('#asof').textContent = `${state.me.email} · data as of ${state.me.as_of || '—'}`;
+    el.innerHTML = '<div class="muted">loading…</div>';
+    await ({firm: renderFirm, pod: renderPod, pipeline: renderPipeline, chat: renderChat})[state.view](el);
+  } catch (e) { el.innerHTML = `<div class="card"><div class="warn">${e.message}</div></div>`; }
+}
+document.querySelectorAll('nav button').forEach(b => b.onclick = () => { state.view = b.dataset.view; render(); });
+$('#who').onchange = e => { state.token = e.target.value; state.pod = null; state.history = []; render(); };
+render();
+</script>
+</body>
+</html>
